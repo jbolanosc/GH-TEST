@@ -1,0 +1,42 @@
+name: Test, Build and Deploy
+
+on: 
+  pull_request:
+    types: [ closed ]
+  
+  jobs: 
+    build-test-release:
+      if: github.event.action == 'closed' && github.event.pull_request == true
+      runs_on: ubuntu-latest
+      steps:
+        - name: Checkout
+          uses: actions/checkout@v2
+          with:
+            fetch-depth: 0
+            token: ${{ secrets.CI_REPOSITORY_ACCESS_TOKEN }}
+        - name: Raise verion of affected libraries
+          run: |
+                LATEST_TAG=$(git tag -l "v*" --sort=-version:refname | head -n 1)
+                LIBS=$(yarn nx affected:libs --base=$LATEST_TAG --head=HEAD --plain | awk 'NR > 2 && $1 != "Done" { print $1 }')
+                for LIBRARY in $LIBS
+                do
+                cd ./libs/$LIBRARY
+                npm version minor --no-git-tag-version --no-push
+                echo "Bumping $LIBRARY"
+                cd ..
+                cd ..
+                done
+                npm version minor --no-git-tag-version --no-push
+        - name: Build components
+          run: yarn nx affected:build --prod --with-deps --base=main
+
+        - name: Build demo
+          run: yarn build:deploy
+
+        - name: Deploy
+          uses: JamesIves/github-pages-deploy-action@3.7.1
+          with:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            BRANCH: gh-pages # branch where the action should deploy
+            FOLDER: dist/apps/unicorn-hunt # the folder action should deploy
+            CLEAN: true
